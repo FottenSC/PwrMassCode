@@ -1,0 +1,14 @@
+{
+	"ID": "2ed6a07180bc408ab0a881ef73124935",
+	"ActionKeyword": "plug",
+	"Disabled": false,
+	"IsGlobal": false,
+	"Name": "PwrMassCode",
+	"Author": "",
+	"Version": "1.0.0",
+	"Language": "csharp",
+	"Website": "",
+	"ExecuteFileName": "Community.PowerToys.Run.Plugin.PwrMassCode.dll",
+	"IcoPathDark": "Images\\PwrMassCode.dark.png",
+	"IcoPathLight": "Images\\PwrMassCode.light.png"
+}
