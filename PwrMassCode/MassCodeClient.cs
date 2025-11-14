@@ -77,36 +77,4 @@ internal sealed class MassCodeClient
         var data = await ReadJsonAsync<List<Snippet>>(resp.Content, ct).ConfigureAwait(false);
         return data ?? [];
     }
-
-    public async Task<int> CreateSnippetAsync(CreateSnippetRequest body, CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, "snippets")
-        {
-            Content = JsonContent.Create(body)
-        };
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode)
-        {
-            var preview = await GetPreviewAsync(resp.Content, ct).ConfigureAwait(false);
-            throw new HttpRequestException($"massCode POST /snippets failed: {(int)resp.StatusCode} {resp.ReasonPhrase}. Body: {preview}");
-        }
-        var data = await ReadJsonAsync<CreateSnippetResponse>(resp.Content, ct).ConfigureAwait(false);
-        return data?.Id ?? 0;
-    }
-
-    public async Task<int> CreateContentAsync(int snippetId, CreateContentRequest body, CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"snippets/{snippetId}/contents")
-        {
-            Content = JsonContent.Create(body)
-        };
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode)
-        {
-            var preview = await GetPreviewAsync(resp.Content, ct).ConfigureAwait(false);
-            throw new HttpRequestException($"massCode POST /snippets/{snippetId}/contents failed: {(int)resp.StatusCode} {resp.ReasonPhrase}. Body: {preview}");
-        }
-        var data = await ReadJsonAsync<CreateSnippetResponse>(resp.Content, ct).ConfigureAwait(false);
-        return data?.Id ?? 0;
-    }
 }

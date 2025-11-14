@@ -394,72 +394,6 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             return list;
         }
 
-        private List<Result> BuildCreateResultIfAny(string search)
-        {
-            var results = new List<Result>();
-            if (string.IsNullOrWhiteSpace(search)) return results;
-
-            var s = search.Trim();
-            bool isCreate = s.StartsWith("new ", StringComparison.OrdinalIgnoreCase)
-            || s.StartsWith("create ", StringComparison.OrdinalIgnoreCase);
-            if (!isCreate) return results;
-
-            var name = s[(s.IndexOf(' ') +1)..].Trim();
-            if (string.IsNullOrEmpty(name)) return results;
-
-            var hasText = false;
-            var text = string.Empty;
-            try
-            {
-                hasText = Clipboard.ContainsText();
-                if (hasText) text = Clipboard.GetText();
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Clipboard read error: {ex}", typeof(Main));
-            }
-
-            if (!hasText || string.IsNullOrWhiteSpace(text)) return results;
-
-            results.Add(new Result
-            {
-                Title = $"Create massCode snippet: {name}",
-                SubTitle = "From clipboard (Fragment1 • plain_text)",
-                IcoPath = _iconPath,
-                QueryTextDisplay = search,
-                Action = _ =>
-                {
-                    try
-                    {
-                        EnsureClient();
-                        var id = _client!.CreateSnippetAsync(new CreateSnippetRequest
-                        {
-                            Name = name,
-                            FolderId = null
-                        }, CancellationToken.None).GetAwaiter().GetResult();
-
-                        if (id >0)
-                        {
-                            _client!.CreateContentAsync(id, new CreateContentRequest
-                            {
-                                Label = "Fragment1",
-                                Language = "plain_text",
-                                Value = text
-                            }, CancellationToken.None).GetAwaiter().GetResult();
-                        }
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error($"Create snippet failed: {ex}", typeof(Main));
-                        return false;
-                    }
-                }
-            });
-
-            return results;
-        }
-
         public List<Result> Query(Query query, bool delayedExecution)
         {
             ArgumentNullException.ThrowIfNull(query);
@@ -474,7 +408,6 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             try
             {
                 EnsureCacheAsync().GetAwaiter().GetResult();
-                results.AddRange(BuildCreateResultIfAny(query.Search));
                 var items = BuildResults(query.Search);
                 if (items.Count ==0)
                 {
@@ -547,9 +480,6 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                 });
                 return results;
             }
-
-            // Create suggestion
-            results.AddRange(BuildCreateResultIfAny(query.Search));
 
             // Ensure cache is ready (first run) so we can show results right away
             try

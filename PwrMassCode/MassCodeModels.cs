@@ -36,21 +36,3 @@ internal sealed class Content
     [JsonPropertyName("value")] public string? Value { get; set; }
     [JsonPropertyName("language")] public string? Language { get; set; }
 }
-
-internal sealed class CreateSnippetRequest
-{
-    [JsonPropertyName("name")] public required string Name { get; set; }
-    [JsonPropertyName("folderId")] public int? FolderId { get; set; }
-}
-
-internal sealed class CreateSnippetResponse
-{
-    [JsonPropertyName("id")] public int Id { get; set; }
-}
-
-internal sealed class CreateContentRequest
-{
-    [JsonPropertyName("label")] public required string Label { get; set; }
-    [JsonPropertyName("value")] public string? Value { get; set; }
-    [JsonPropertyName("language")] public required string Language { get; set; }
-}
