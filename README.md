@@ -1,9 +1,6 @@
 # PwrMassCode – PowerToys Run plugin for massCode
 Mostly a copy of the vscode extension with the help of some good ol ai slop
 
-## Install and enable
-There are two ways to get the plugin into PowerToys Run:
-
 ## Usage
 - Open PowerToys Run and type `ms`, then your search.
 - To search for specifics use:
@@ -11,6 +8,9 @@ There are two ways to get the plugin into PowerToys Run:
 - # = Text
 - % = Folder
 - | = Tag
+
+## Installation
+
 
 ## Configuration
 - Open PowerToys Settings > PowerToys Run > Plugins > `PwrMassCode`.
