@@ -1,10 +1,10 @@
 {
 	"ID": "2ed6a07180bc408ab0a881ef73124935",
-	"ActionKeyword": "plug",
+	"ActionKeyword": "ms",
 	"Disabled": false,
 	"IsGlobal": false,
 	"Name": "PwrMassCode",
-	"Author": "",
+	"Author": "Fotten",
 	"Version": "1.0.0",
 	"Language": "csharp",
 	"Website": "",

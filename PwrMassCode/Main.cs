@@ -12,11 +12,15 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
 {
     public class Main : IPlugin, IPluginI18n, IContextMenu, ISettingProvider, IReloadable, IDisposable, IDelayedExecutionPlugin
     {
-        private const string Setting = nameof(Setting);
-        private const string PasteInsteadOfCopySetting = nameof(PasteInsteadOfCopySetting); // new setting key
-        // current value of the setting
-        private bool _setting;
-        private bool _pasteInsteadOfCopy; // flag for paste behavior
+        private const string CopySnippetSetting = nameof(CopySnippetSetting); // copy/paste behavior
+        private const string BaseUrlSetting = nameof(BaseUrlSetting); // MassCode base URL
+        private const string TitlePrefixSetting = nameof(TitlePrefixSetting);
+        private const string TextPrefixSetting = nameof(TextPrefixSetting);
+        private const string FolderPrefixSetting = nameof(FolderPrefixSetting);
+        private const string TagPrefixSetting = nameof(TagPrefixSetting);
+
+        private bool _copySnippet; // when true -> copy, when false (default) -> paste
+        private string _baseUrl = "http://localhost:4321"; // default URL
         private PluginInitContext _context;
         private string _iconPath;
         private bool _disposed;
@@ -25,32 +29,111 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
         public string Description => Resources.plugin_description;
         public static string PluginID => "2ed6a07180bc408ab0a881ef73124935";
 
-        private readonly MassCodeClient _client = MassCodeClient.Create();
+        private MassCodeClient? _client;
         private IReadOnlyList<Snippet> _cache = Array.Empty<Snippet>();
         private DateTime _cacheAt = DateTime.MinValue;
         private readonly TimeSpan _cacheTtl = TimeSpan.FromSeconds(10);
+
+        // user-configurable prefix characters (defaults)
+        private char _prefixTitle = '!' ;
+        private char _prefixText = '#' ;
+        private char _prefixFolder = '%' ;
+        private char _prefixTag = '|';
 
         // TODO: add additional options (optional)
         public IEnumerable<PluginAdditionalOption> AdditionalOptions => new List<PluginAdditionalOption>()
         {
             new PluginAdditionalOption()
             {
-                PluginOptionType= PluginAdditionalOption.AdditionalOptionType.Checkbox,
-                Key = Setting,
-                DisplayLabel = Resources.plugin_setting,
-            },
-            new PluginAdditionalOption() // new option
-            {
                 PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Checkbox,
-                Key = PasteInsteadOfCopySetting,
-                DisplayLabel = "Paste snippet instead of copy",
+                Key = CopySnippetSetting,
+                DisplayLabel = "Copy snippet",
+                Value = false, // default false -> paste
+            },
+            new PluginAdditionalOption()
+            {
+                PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Textbox,
+                Key = BaseUrlSetting,
+                DisplayLabel = "massCode Base URL",
+                TextValue = "http://localhost:4321",
+            },
+            new PluginAdditionalOption()
+            {
+                PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Textbox,
+                Key = TitlePrefixSetting,
+                DisplayLabel = "Prefix: Title",
+                TextValue = "!",
+            },
+            new PluginAdditionalOption()
+            {
+                PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Textbox,
+                Key = TextPrefixSetting,
+                DisplayLabel = "Prefix: Text",
+                TextValue = "#",
+            },
+            new PluginAdditionalOption()
+            {
+                PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Textbox,
+                Key = FolderPrefixSetting,
+                DisplayLabel = "Prefix: Folder",
+                TextValue = "%",
+            },
+            new PluginAdditionalOption()
+            {
+                PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Textbox,
+                Key = TagPrefixSetting,
+                DisplayLabel = "Prefix: Tags",
+                TextValue = "|",
             }
         };
 
         public void UpdateSettings(PowerLauncherPluginSettings settings)
         {
-            _setting = settings?.AdditionalOptions?.FirstOrDefault(x => x.Key == Setting)?.Value ?? false;
-            _pasteInsteadOfCopy = settings?.AdditionalOptions?.FirstOrDefault(x => x.Key == PasteInsteadOfCopySetting)?.Value ?? false; // load new option
+            // load options
+            _copySnippet = settings?.AdditionalOptions?.FirstOrDefault(x => x.Key == CopySnippetSetting)?.Value ?? false;
+            var url = settings?.AdditionalOptions?.FirstOrDefault(x => x.Key == BaseUrlSetting)?.TextValue;
+            var newBase = string.IsNullOrWhiteSpace(url) ? "http://localhost:4321" : url!.Trim();
+            if (!string.Equals(_baseUrl, newBase, StringComparison.Ordinal))
+            {
+                _baseUrl = newBase;
+                // Recreate client on URL change
+                _client = MassCodeClient.Create(_baseUrl);
+                // Reset cache to reflect potential different server
+                _cache = Array.Empty<Snippet>();
+                _cacheAt = DateTime.MinValue;
+            }
+
+            // load customizable prefixes (fallback to defaults on invalid)
+            _prefixTitle = ParsePrefix(settings, TitlePrefixSetting, '!');
+            _prefixText = ParsePrefix(settings, TextPrefixSetting, '#');
+            _prefixFolder = ParsePrefix(settings, FolderPrefixSetting, '%');
+            _prefixTag = ParsePrefix(settings, TagPrefixSetting, '|');
+        }
+
+        private static char ParsePrefix(PowerLauncherPluginSettings? settings, string key, char fallback)
+        {
+            try
+            {
+                var s = settings?.AdditionalOptions?.FirstOrDefault(x => x.Key == key)?.TextValue;
+                if (string.IsNullOrWhiteSpace(s)) return fallback;
+                foreach (var ch in s.Trim())
+                {
+                    if (!char.IsWhiteSpace(ch)) return ch;
+                }
+                return fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private void EnsureClient()
+        {
+            if (_client is null)
+            {
+                _client = MassCodeClient.Create(_baseUrl);
+            }
         }
 
         // TODO: return context menus for each Result (optional)
@@ -156,11 +239,11 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
         private bool ExecuteSnippet(string text) // unified execution based on setting
         {
             if (string.IsNullOrEmpty(text)) return false;
-            if (_pasteInsteadOfCopy == false)
+            if (_copySnippet)
             {
                 return ClipboardTrySetText(text);
             }
-            // paste mode
+            // paste mode (default)
             var copied = ClipboardTrySetText(text);
             if (!copied) return false;
             try
@@ -187,9 +270,10 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
         {
             try
             {
+                EnsureClient();
                 if (_cache.Count ==0 || (DateTime.UtcNow - _cacheAt) > _cacheTtl)
                 {
-                    var data = await _client.GetSnippetsAsync(CancellationToken.None).ConfigureAwait(false);
+                    var data = await _client!.GetSnippetsAsync(CancellationToken.None).ConfigureAwait(false);
                     _cache = data;
                     _cacheAt = DateTime.UtcNow;
                     _lastError = null;
@@ -214,21 +298,84 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             }
         }
 
+        private static bool ContainsIgnoreCase(string? haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(needle)) return true;
+            if (string.IsNullOrEmpty(haystack)) return false;
+            return haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class AdvancedQuery
+        {
+            public List<string> TitleTerms { get; } = new(); // !
+            public List<string> TextTerms { get; } = new(); // #
+            public List<string> FolderTerms { get; } = new(); // %
+            public List<string> TagTerms { get; } = new(); // |
+            public List<string> GenericTerms { get; } = new(); // no prefix
+        }
+
+        private AdvancedQuery ParseAdvancedQuery(string search)
+        {
+            var aq = new AdvancedQuery();
+            if (string.IsNullOrWhiteSpace(search)) return aq;
+            var tokens = search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var raw in tokens)
+            {
+                if (raw.Length ==0) continue;
+                char prefix = raw[0];
+                string term = raw;
+                if (prefix == _prefixTitle || prefix == _prefixText || prefix == _prefixFolder || prefix == _prefixTag)
+                {
+                    term = raw.Substring(1);
+                    if (string.IsNullOrWhiteSpace(term)) continue;
+                    if (prefix == _prefixTitle) aq.TitleTerms.Add(term);
+                    else if (prefix == _prefixText) aq.TextTerms.Add(term);
+                    else if (prefix == _prefixFolder) aq.FolderTerms.Add(term);
+                    else if (prefix == _prefixTag) aq.TagTerms.Add(term);
+                }
+                else
+                {
+                    aq.GenericTerms.Add(raw);
+                }
+            }
+            return aq;
+        }
+
+        private static bool MatchesAdvanced((Snippet snippet, Content content) t, AdvancedQuery aq)
+        {
+            // AND across each bucket; buckets empty => ignore
+            if (aq.TitleTerms.Count >0 && !aq.TitleTerms.All(tt => ContainsIgnoreCase(t.snippet.Name, tt))) return false;
+            if (aq.FolderTerms.Count >0 && !aq.FolderTerms.All(ft => ContainsIgnoreCase(t.snippet.Folder?.Name, ft))) return false;
+            if (aq.TagTerms.Count >0)
+            {
+                if (t.snippet.Tags is null || t.snippet.Tags.Count ==0) return false;
+                if (!aq.TagTerms.All(tagTerm => t.snippet.Tags.Any(tag => ContainsIgnoreCase(tag.Name, tagTerm)))) return false;
+            }
+            if (aq.TextTerms.Count >0 && !aq.TextTerms.All(tt => ContainsIgnoreCase(t.content.Value, tt))) return false;
+
+            if (aq.GenericTerms.Count >0)
+            {
+                bool anyGeneric = aq.GenericTerms.All(g =>
+                     ContainsIgnoreCase(t.snippet.Name, g)
+                  || ContainsIgnoreCase(t.content.Label, g)
+                  || ContainsIgnoreCase(t.content.Language, g)
+                  || ContainsIgnoreCase(t.snippet.Folder?.Name, g)
+                  || ContainsIgnoreCase(t.content.Value, g)
+                  || (t.snippet.Tags != null && t.snippet.Tags.Any(tag => ContainsIgnoreCase(tag.Name, g)))
+                );
+                if (!anyGeneric) return false;
+            }
+
+            return true;
+        }
+
         private List<Result> BuildResults(string search)
         {
             var list = new List<Result>();
             var flat = Flatten(_cache);
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var term = search.Trim();
-                flat = flat.Where(t =>
-                (t.snippet.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (t.content.Label?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (t.content.Language?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (t.snippet.Folder?.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (t.content.Value?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
-                );
-            }
+
+            var aq = ParseAdvancedQuery(search);
+            flat = flat.Where(t => MatchesAdvanced(t, aq));
 
             foreach (var (s, c) in flat.Take(100))
             {
@@ -239,7 +386,8 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                     Title = s.Name ?? string.Empty,
                     SubTitle = sub,
                     IcoPath = _iconPath,
-                    Action = _ => ExecuteSnippet(text) // changed to unified method
+                    QueryTextDisplay = search,
+                    Action = _ => ExecuteSnippet(text)
                 });
             }
 
@@ -278,11 +426,13 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                 Title = $"Create massCode snippet: {name}",
                 SubTitle = "From clipboard (Fragment1 • plain_text)",
                 IcoPath = _iconPath,
+                QueryTextDisplay = search,
                 Action = _ =>
                 {
                     try
                     {
-                        var id = _client.CreateSnippetAsync(new CreateSnippetRequest
+                        EnsureClient();
+                        var id = _client!.CreateSnippetAsync(new CreateSnippetRequest
                         {
                             Name = name,
                             FolderId = null
@@ -290,7 +440,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
 
                         if (id >0)
                         {
-                            _client.CreateContentAsync(id, new CreateContentRequest
+                            _client!.CreateContentAsync(id, new CreateContentRequest
                             {
                                 Label = "Fragment1",
                                 Language = "plain_text",
@@ -310,7 +460,6 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             return results;
         }
 
-        // Optional delayed query (kept for compatibility)
         public List<Result> Query(Query query, bool delayedExecution)
         {
             ArgumentNullException.ThrowIfNull(query);
@@ -341,6 +490,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                             Title = "massCode connection issue",
                             SubTitle = subtitle,
                             IcoPath = _iconPath,
+                            QueryTextDisplay = query.Search,
                         });
                     }
                     else
@@ -350,6 +500,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                             Title = "No matching snippets",
                             SubTitle = $"Try a broader term. Snippets loaded: {_cache.Count}.",
                             IcoPath = _iconPath,
+                            QueryTextDisplay = query.Search,
                         });
                     }
                 }
@@ -366,6 +517,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                     Title = "massCode connection error",
                     SubTitle = $"App not running or port is incorrect. Error: {ex.Message}",
                     IcoPath = _iconPath,
+                    QueryTextDisplay = query.Search,
                 });
             }
 
@@ -421,6 +573,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                         Title = "massCode connection issue",
                         SubTitle = subtitle,
                         IcoPath = _iconPath,
+                        QueryTextDisplay = query.Search,
                     });
                 }
                 else
@@ -430,6 +583,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                         Title = "No matching snippets",
                         SubTitle = $"Try a broader term. Snippets loaded: {_cache.Count}.",
                         IcoPath = _iconPath,
+                        QueryTextDisplay = query.Search,
                     });
                 }
             }
@@ -441,7 +595,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             return results;
         }
 
-        private static bool TrySendCtrlVWithRetries(int attempts =3, int initialDelayMs =450, int retryDelayMs =250)
+        private static bool TrySendCtrlVWithRetries(int attempts =3, int initialDelayMs =220, int retryDelayMs =250)
         {
             for (int i =0; i < attempts; i++)
             {
@@ -471,6 +625,8 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _context.API.ThemeChanged += OnThemeChanged;
             UpdateIconPath(_context.API.GetCurrentTheme());
+            // Ensure client with default URL on init
+            EnsureClient();
         }
 
         public string GetTranslatedPluginTitle()

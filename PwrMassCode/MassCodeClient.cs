@@ -20,12 +20,13 @@ internal sealed class MassCodeClient
         _http = http;
     }
 
-    public static MassCodeClient Create()
+    public static MassCodeClient Create(string? baseUrl)
     {
-        var port = Environment.GetEnvironmentVariable("MASSCODE_PORT");
-        if (!int.TryParse(port, out var p) || p <= 0)
+        const string fallback = "http://localhost:4321";
+        Uri uri;
+        if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out uri))
         {
-            p = 4321;
+            uri = new Uri(fallback);
         }
 
         var handler = new SocketsHttpHandler
@@ -39,7 +40,7 @@ internal sealed class MassCodeClient
 
         var http = new HttpClient(handler)
         {
-            BaseAddress = new Uri($"http://localhost:{p}/"),
+            BaseAddress = uri,
             Timeout = TimeSpan.FromSeconds(30),
             DefaultRequestVersion = HttpVersion.Version11,
             DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
