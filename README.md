@@ -5,7 +5,7 @@ Mostly a copy of the vscode extension with the help of some good ol ai slop
 - Open PowerToys Run and type `ms`, then your search.
 - To search for specifics use:
 - ! = Title
-- # = Text
+- \# = Text
 - % = Folder
 - | = Tag
 
