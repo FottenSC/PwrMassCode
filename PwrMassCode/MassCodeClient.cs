@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Linq; // added for client-side filtering
 
 namespace Community.PowerToys.Run.Plugin.PwrMassCode;
 
@@ -65,16 +66,30 @@ internal sealed class MassCodeClient
         return bytes.Length > 1024 ? text + "…" : text;
     }
 
-    public async Task<IReadOnlyList<Snippet>> GetSnippetsAsync(CancellationToken ct)
+    // Backward compatible method signature – defaults to including favorites
+    public Task<IReadOnlyList<Snippet>> GetSnippetsAsync(CancellationToken ct)
+        => GetSnippetsAsync(excludeFavorites: false, ct);
+
+    // New overload allowing callers to exclude favorited snippets
+    public async Task<IReadOnlyList<Snippet>> GetSnippetsAsync(bool excludeFavorites, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, "snippets?isDeleted=0");
+        // API only reliably filters when isFavorites=1; perform favorites exclusion client-side instead
+        const string url = "snippets?isDeleted=0";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
         using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode)
-        {
+        if (resp.IsSuccessStatusCode == false){
             var preview = await GetPreviewAsync(resp.Content, ct).ConfigureAwait(false);
-            throw new HttpRequestException($"massCode GET /snippets failed: {(int)resp.StatusCode} {resp.ReasonPhrase}. Body: {preview}");
+            throw new HttpRequestException($"massCode GET /{url} failed: {(int)resp.StatusCode} {resp.ReasonPhrase}. Body: {preview}");
         }
-        var data = await ReadJsonAsync<List<Snippet>>(resp.Content, ct).ConfigureAwait(false);
-        return data ?? [];
+        var data = await ReadJsonAsync<List<Snippet>>(resp.Content, ct).ConfigureAwait(false) ?? [];
+
+        if (excludeFavorites)
+        {
+            // Return only non-favorited snippets
+            return data.Where(s => s != null && s.IsFavorite == false).ToList();
+        }
+
+        return data;
     }
 }

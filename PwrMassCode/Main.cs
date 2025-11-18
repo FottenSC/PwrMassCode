@@ -18,6 +18,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
         private const string TextPrefixSetting = nameof(TextPrefixSetting);
         private const string FolderPrefixSetting = nameof(FolderPrefixSetting);
         private const string TagPrefixSetting = nameof(TagPrefixSetting);
+        private const string ExcludeFavoritesSetting = nameof(ExcludeFavoritesSetting); // exclude favorited snippets
 
         private bool _copySnippet; // when true -> copy, when false (default) -> paste
         private string _baseUrl = "http://localhost:4321"; // default URL
@@ -40,6 +41,9 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
         private char _prefixFolder = '%' ;
         private char _prefixTag = '|';
 
+        // new option: exclude favorited snippets during fetch
+        private bool _excludeFavorites = false;
+
         // TODO: add additional options (optional)
         public IEnumerable<PluginAdditionalOption> AdditionalOptions => new List<PluginAdditionalOption>()
         {
@@ -49,6 +53,13 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                 Key = CopySnippetSetting,
                 DisplayLabel = "Copy snippet",
                 Value = false, // default false -> paste
+            },
+            new PluginAdditionalOption()
+            {
+                PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Checkbox,
+                Key = ExcludeFavoritesSetting,
+                DisplayLabel = "Exclude favorites",
+                Value = false,
             },
             new PluginAdditionalOption()
             {
@@ -62,7 +73,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                 PluginOptionType = PluginAdditionalOption.AdditionalOptionType.Textbox,
                 Key = TitlePrefixSetting,
                 DisplayLabel = "Prefix: Title",
-                TextValue = "!",
+                TextValue = " !",
             },
             new PluginAdditionalOption()
             {
@@ -96,18 +107,25 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             if (!string.Equals(_baseUrl, newBase, StringComparison.Ordinal))
             {
                 _baseUrl = newBase;
-                // Recreate client on URL change
                 _client = MassCodeClient.Create(_baseUrl);
-                // Reset cache to reflect potential different server
                 _cache = Array.Empty<Snippet>();
                 _cacheAt = DateTime.MinValue;
             }
 
             // load customizable prefixes (fallback to defaults on invalid)
-            _prefixTitle = ParsePrefix(settings, TitlePrefixSetting, '!');
+            _prefixTitle = ParsePrefix(settings, TitlePrefixSetting, '!' );
             _prefixText = ParsePrefix(settings, TextPrefixSetting, '#');
             _prefixFolder = ParsePrefix(settings, FolderPrefixSetting, '%');
             _prefixTag = ParsePrefix(settings, TagPrefixSetting, '|');
+
+            // load exclude favorites option
+            var newExcludeFavorites = settings?.AdditionalOptions?.FirstOrDefault(x => x.Key == ExcludeFavoritesSetting)?.Value ?? false;
+            if (newExcludeFavorites != _excludeFavorites)
+            {
+                _excludeFavorites = newExcludeFavorites;
+                _cache = Array.Empty<Snippet>();
+                _cacheAt = DateTime.MinValue;
+            }
         }
 
         private static char ParsePrefix(PowerLauncherPluginSettings? settings, string key, char fallback)
@@ -273,7 +291,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
                 EnsureClient();
                 if (_cache.Count ==0 || (DateTime.UtcNow - _cacheAt) > _cacheTtl)
                 {
-                    var data = await _client!.GetSnippetsAsync(CancellationToken.None).ConfigureAwait(false);
+                    var data = await _client!.GetSnippetsAsync(_excludeFavorites, CancellationToken.None).ConfigureAwait(false);
                     _cache = data;
                     _cacheAt = DateTime.UtcNow;
                     _lastError = null;
@@ -525,7 +543,7 @@ namespace Community.PowerToys.Run.Plugin.PwrMassCode
             return results;
         }
 
-        private static bool TrySendCtrlVWithRetries(int attempts =3, int initialDelayMs =220, int retryDelayMs =250)
+        private static bool TrySendCtrlVWithRetries(int attempts = 3, int initialDelayMs = 10, int retryDelayMs = 250)
         {
             for (int i =0; i < attempts; i++)
             {
